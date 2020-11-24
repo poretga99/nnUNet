@@ -105,7 +105,12 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
         seg_old_spacing = segmentation_softmax
 
     if resampled_npz_fname is not None:
-        np.savez_compressed(resampled_npz_fname, softmax=seg_old_spacing.astype(np.float16))
+        seg_old_size = np.zeros(shape_original_before_cropping)
+        bbox = properties_dict.get('crop_bbox')
+        seg_old_size[bbox[0][0]:bbox[0][1],
+        bbox[1][0]:bbox[1][1],
+        bbox[2][0]:bbox[2][1]] = seg_old_spacing[1]
+        np.savez_compressed(resampled_npz_fname, softmax=seg_old_size.astype(np.float16))
         # this is needed for ensembling if the nonlinearity is sigmoid
         if region_class_order is not None:
             properties_dict['regions_class_order'] = region_class_order
