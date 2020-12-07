@@ -77,6 +77,7 @@ def verify_same_geometry(img_1: sitk.Image, img_2: sitk.Image):
 
 
 def verify_contains_only_expected_labels(itk_img: str, valid_labels: (tuple, list)):
+    #ToDo: Tole tukaj se uporablja za pregled label-ov. Tukaj bo treba spremeniti!
     img_npy = sitk.GetArrayFromImage(sitk.ReadImage(itk_img))
     uniques = np.unique(img_npy)
     invalid_uniques = [i for i in uniques if i not in valid_labels]
