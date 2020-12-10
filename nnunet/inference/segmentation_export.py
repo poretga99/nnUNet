@@ -22,6 +22,7 @@ import SimpleITK as sitk
 from batchgenerators.augmentations.utils import resize_segmentation
 from nnunet.preprocessing.preprocessing import get_lowres_axis, get_do_separate_z, resample_data_or_seg
 from batchgenerators.utilities.file_and_folder_operations import *
+from torch import sigmoid
 
 
 def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.ndarray], out_fname: str,
@@ -72,6 +73,7 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
 
     # first resample, then put result into bbox of cropping, then save
     current_shape = segmentation_softmax.shape
+    print('Segmentation softmax shape ', current_shape)
     shape_original_after_cropping = properties_dict.get('size_after_cropping')
     shape_original_before_cropping = properties_dict.get('original_size_of_raw_data')
     # current_spacing = dct.get('spacing_after_resampling')
@@ -103,13 +105,19 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
     else:
         if verbose: print("no resampling necessary")
         seg_old_spacing = segmentation_softmax
+        print('Here1, ', segmentation_softmax.shape)
 
     if resampled_npz_fname is not None:
-        seg_old_size = np.zeros(shape_original_before_cropping)
+        print('Here2 ', shape_original_before_cropping)
+        #seg_old_size = np.zeros(shape_original_before_cropping)
+        seg_old_size = np.zeros((segmentation_softmax.shape[0], shape_original_before_cropping[1], shape_original_before_cropping[2]))
         bbox = properties_dict.get('crop_bbox')
-        seg_old_size[bbox[0][0]:bbox[0][1],
+        print('bbox')
+        print('segoldsp ', seg_old_spacing[1].shape)
+        #seg_old_size[bbox[0][0]:bbox[0][1],
+        seg_old_size[:,
         bbox[1][0]:bbox[1][1],
-        bbox[2][0]:bbox[2][1]] = seg_old_spacing[1]
+        bbox[2][0]:bbox[2][1]] = seg_old_spacing[:,0,:,:]
         np.savez_compressed(resampled_npz_fname, softmax=seg_old_size.astype(np.float16))
         # this is needed for ensembling if the nonlinearity is sigmoid
         if region_class_order is not None:
@@ -120,9 +128,11 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
         seg_old_spacing = seg_old_spacing.argmax(0)
     else:
         seg_old_spacing_final = np.zeros(seg_old_spacing.shape[1:])
+        print('\n\n\n seg_old_spacing_final ', seg_old_spacing_final.shape)
         for i, c in enumerate(region_class_order):
-            seg_old_spacing_final[seg_old_spacing[i] > 0.5] = c
+            seg_old_spacing_final[seg_old_spacing[i] > 0.5] += 1
         seg_old_spacing = seg_old_spacing_final
+        #seg_old_spacing = segmentation_softmax
 
     bbox = properties_dict.get('crop_bbox')
 

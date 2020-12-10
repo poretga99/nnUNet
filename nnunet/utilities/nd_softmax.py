@@ -15,7 +15,9 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch import sigmoid
 
 
 softmax_helper = lambda x: F.softmax(x, 1)
+sigmoid_helper = lambda x: sigmoid(x)
 

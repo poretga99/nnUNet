@@ -22,7 +22,7 @@ class nnUNetTrainerV2_Loss_Dice_LR1en3(nnUNetTrainerV2_Loss_Dice):
                  unpack_data=True, deterministic=True, fp16=False):
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                          deterministic, fp16)
-        self.initial_lr = 1e-3
+        self.initial_lr = 1e-4
 
 
 class nnUNetTrainerV2_Loss_DicewithBG_LR1en3(nnUNetTrainerV2_Loss_DicewithBG):

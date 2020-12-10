@@ -12,7 +12,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-
+from torch.nn.modules.loss import _WeightedLoss
 import torch
 from nnunet.training.loss_functions.TopK_loss import TopKLoss
 from nnunet.training.loss_functions.crossentropy import RobustCrossEntropyLoss
@@ -109,16 +109,16 @@ def get_tp_fp_fn_tn(net_output, gt, axes=None, mask=None, square=False):
     :param square: if True then fp, tp and fn will be squared before summation
     :return:
     """
-    if axes is None:
-        axes = tuple(range(2, len(net_output.size())))
+    #if axes is None:
+    #    axes = tuple(range(2, len(net_output.size())))
 
     shp_x = net_output.shape
     shp_y = gt.shape
 
     with torch.no_grad():
+        #print("gt shape ", gt.shape)
         if len(shp_x) != len(shp_y):
             gt = gt.view((shp_y[0], 1, *shp_y[1:]))
-
         if all([i == j for i, j in zip(net_output.shape, gt.shape)]):
             # if this is the case then gt is probably already a one hot encoding
             y_onehot = gt
@@ -128,7 +128,10 @@ def get_tp_fp_fn_tn(net_output, gt, axes=None, mask=None, square=False):
             if net_output.device.type == "cuda":
                 y_onehot = y_onehot.cuda(net_output.device.index)
             y_onehot.scatter_(1, gt, 1)
+        #print("y onehot ", y_onehot.shape)
 
+    #print("net output shape ", net_output.shape)
+    #print("y onehot ", y_onehot.shape)
     tp = net_output * y_onehot
     fp = net_output * (1 - y_onehot)
     fn = (1 - net_output) * y_onehot
@@ -151,9 +154,174 @@ def get_tp_fp_fn_tn(net_output, gt, axes=None, mask=None, square=False):
         fp = sum_tensor(fp, axes, keepdim=False)
         fn = sum_tensor(fn, axes, keepdim=False)
         tn = sum_tensor(tn, axes, keepdim=False)
+    #print("net_output dtype ", net_output.dtype)
+    #print("net_output max ", net_output.max())
+    #print("sum axes ", axes)
+    #print("tp shape", tp.shape)
+    #print("fp shape", fp.shape)
+    #print("tn shape", tn.shape)
+    #print("fn shape", fn.shape)
 
     return tp, fp, fn, tn
 
+def get_tp_fp_fn_tn4(net_output, gt, axes=None, mask=None, square=False):
+    """
+    net_output must be (b, c, x, y(, z)))
+    gt must be a label map (shape (b, 1, x, y(, z)) OR shape (b, x, y(, z))) or one hot encoding (b, c, x, y(, z))
+    if mask is provided it must have shape (b, 1, x, y(, z)))
+    :param net_output:
+    :param gt:
+    :param axes: can be (, ) = no summation
+    :param mask: mask must be 1 for valid pixels and 0 for invalid pixels
+    :param square: if True then fp, tp and fn will be squared before summation
+    :return:
+    """
+    #if axes is None:
+    #    axes = tuple(range(2, len(net_output.size())))
+
+    shp_x = net_output.shape
+    shp_y = gt.shape
+    #print('Labels ', torch.unique(gt))
+    #p0, p1, p2, p3 = (gt==0).sum(), (gt>=1).sum(), (gt>=2).sum(), (gt>=3).sum()
+    #print('GT val ', p0, ' ', p1, ' ', p2, ' ', p3)
+    with torch.no_grad():
+        gt = gt.long()
+        y_onehot = torch.zeros(shp_x)
+        if net_output.device.type == "cuda":
+            y_onehot = y_onehot.cuda(net_output.device.index)
+        for i in range(1, shp_x[1]):
+            y_onehot[:, i, :, :] = (gt >= i)[:, 0, :, :]
+        y_onehot[:, 0, :, :] = (gt == 0)[:, 0, :, :]
+    #p0, p1, p2, p3 = (y_onehot[:, 0, :, :]==1).sum(), (y_onehot[:, 1, :, :]==1).sum(), (y_onehot[:, 2, :, :]==1).sum(), (y_onehot[:, 3, :, :]==1).sum()
+    #print('OH ', p0, ' ', p1, ' ', p2, ' ', p3)
+    #print('Values ', p0, ' ', p1, ' ', p2, ' ', p3)
+    #print("net output shape ", net_output.shape)
+    #print("net output shape ", net_output.shape)
+    #print("y onehot ", y_onehot.shape)
+    #print('y onehot uniques ', torch.unique(y_onehot))
+    tp = net_output * y_onehot
+    fp = net_output * (1 - y_onehot)
+    fn = (1 - net_output) * y_onehot
+    tn = (1 - net_output) * (1 - y_onehot)
+
+    if len(axes) > 0:
+        tp = sum_tensor(tp, axes, keepdim=False)
+        fp = sum_tensor(fp, axes, keepdim=False)
+        fn = sum_tensor(fn, axes, keepdim=False)
+        tn = sum_tensor(tn, axes, keepdim=False)
+    #print("net_output dtype ", net_output.dtype)
+    #print("net_output max ", net_output.max())
+    #print("sum axes ", axes)
+    #print("tp shape", tp.shape)
+    #print("fp shape", fp.shape)
+    #print("tn shape", tn.shape)
+    #print("fn shape", fn.shape)
+
+    return tp, fp, fn, tn
+
+def get_tp_fp_fn_tn3(output, target, axes=None, mask=None, square=False):
+    with torch.no_grad():
+        num_classes = output.shape[1]
+        output_softmax = softmax_helper(output)
+        output_seg = output_softmax.argmax(1)
+        target = target[:, 0]
+        axes = tuple(range(1, len(target.shape)))
+        tp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
+        fp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
+        fn_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
+        for c in range(1, num_classes):
+            tp_hard[:, c - 1] = sum_tensor((output_seg >= c).float() * (target >= c).float(), axes=axes)
+            fp_hard[:, c - 1] = sum_tensor((output_seg >= c).float() * (target < c).float(), axes=axes)
+            fn_hard[:, c - 1] = sum_tensor((output_seg < c).float() * (target >= c).float(), axes=axes)
+
+        tp_hard = tp_hard.sum(0, keepdim=False)
+        fp_hard = fp_hard.sum(0, keepdim=False)
+        fn_hard = fn_hard.sum(0, keepdim=False)
+    return tp_hard, fp_hard, fn_hard
+
+def get_tp_fp_fn_tn2(net_output, gt, axes=None, mask=None, square=False):
+    """
+    net_output must be (b, c, x, y(, z)))
+    gt must be a label map (shape (b, 1, x, y(, z)) OR shape (b, x, y(, z))) or one hot encoding (b, c, x, y(, z))
+    if mask is provided it must have shape (b, 1, x, y(, z)))
+    :param net_output:
+    :param gt:
+    :param axes: can be (, ) = no summation
+    :param mask: mask must be 1 for valid pixels and 0 for invalid pixels
+    :param square: if True then fp, tp and fn will be squared before summation
+    :return:
+    """
+    if axes is None:
+        axes = tuple(range(2, len(net_output.size())))
+
+    shp_x = net_output.shape
+    shp_y = gt.shape
+    #print("gt unique ", torch.unique(gt))
+    #print("gt shape ", gt.shape)
+    with torch.no_grad():
+        if len(shp_x) != len(shp_y):
+            gt = gt.view((shp_y[0], 1, *shp_y[1:]))
+        if all([i == j for i, j in zip(net_output.shape, gt.shape)]):
+            # if this is the case then gt is probably already a one hot encoding
+            y_onehot = gt
+        else:
+            gt = gt.long()
+            y_onehot = torch.zeros(shp_x)
+            #print("gt shape ", gt.shape)
+            #print("y onehot shape", y_onehot.shape)
+            if net_output.device.type == "cuda":
+                y_onehot = y_onehot.cuda(net_output.device.index)
+            for i in range(1, shp_x[1]):
+                y_onehot[:,i,:,:] = (gt > i-1)[:,0,:,:]
+            y_onehot[:,0,:,:] = (gt == 0)[:,0,:,:]
+            #y_onehot.scatter_(1, gt, 1)
+            #print("y onehot ", y_onehot.shape)
+            #for i in range(shp_x[1]):
+                #print("y onehot max ", i , " is ", y_onehot[:,i,:,:].max())
+                #print("y onehot sum ", i, " is ", y_onehot[:, i, :, :].sum())
+                #print("gt sum ", i, " is ", (gt > i-1).sum())
+                #print("net sum ", i, " is ", (net_output[:,i,:,:] > 0).sum())
+    # [batch, classes, row, col]
+    #print("net_output ", net_output.shape)
+    #print("y_onehot ", y_onehot.shape)
+    tp = net_output * y_onehot
+    fp = net_output * (1 - y_onehot)
+    fn = (1 - net_output) * y_onehot
+    tn = (1 - net_output) * (1 - y_onehot)
+    #Edit values
+    #print("tp shape ", tp.shape)
+    for i in range(shp_x[1]):
+        #print('net_output max ', i, " ",  torch.max(net_output))
+        #print('y_onehot max ',i," ", torch.max(y_onehot))
+        tp[:,i,:,:] = net_output[:,i,:,:] * y_onehot[:,i,:,:]
+        fp[:,i,:,:] = net_output[:,i,:,:] * (1 - y_onehot)[:,i,:,:]
+        fn[:,i,:,:] = (1 - net_output)[:,i,:,:] * y_onehot[:,i,:,:]
+        tn[:,i,:,:] = (1 - net_output)[:,i,:,:] * (1 - y_onehot)[:,i,:,:]
+
+    if mask is not None:
+        tp = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(tp, dim=1)), dim=1)
+        fp = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(fp, dim=1)), dim=1)
+        fn = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(fn, dim=1)), dim=1)
+        tn = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(tn, dim=1)), dim=1)
+
+    if square:
+        tp = tp ** 2
+        fp = fp ** 2
+        fn = fn ** 2
+        tn = tn ** 2
+
+    if len(axes) > 0:
+        tp = sum_tensor(tp, axes, keepdim=False)
+        fp = sum_tensor(fp, axes, keepdim=False)
+        fn = sum_tensor(fn, axes, keepdim=False)
+        tn = sum_tensor(tn, axes, keepdim=False)
+
+    #print("tp shape", tp.shape)
+    #print("fp shape", fp.shape)
+    #print("tn shape", tn.shape)
+    #print("fn shape", fn.shape)
+
+    return tp, fp, fn, tn
 
 class SoftDiceLoss(nn.Module):
     def __init__(self, apply_nonlin=None, batch_dice=False, do_bg=True, smooth=1.):
@@ -167,6 +335,8 @@ class SoftDiceLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, x, y, loss_mask=None):
+
+
         shp_x = x.shape
 
         if self.batch_dice:
@@ -177,12 +347,53 @@ class SoftDiceLoss(nn.Module):
         if self.apply_nonlin is not None:
             x = self.apply_nonlin(x)
 
+        # Debugging
+        #print("max x ", x.max())
+        #print("max y ", y.max())
         tp, fp, fn, _ = get_tp_fp_fn_tn(x, y, axes, loss_mask, False)
 
         nominator = 2 * tp + self.smooth
         denominator = 2 * tp + fp + fn + self.smooth
 
         dc = nominator / (denominator + 1e-8)
+        #print('Dice ', dc)
+        if not self.do_bg:
+            if self.batch_dice:
+                dc = dc[1:]
+            else:
+                dc = dc[:, 1:]
+        dc = dc.mean()
+        #print('Dice mean', dc)
+        return -dc
+
+class SoftDiceLoss2(nn.Module):
+    def __init__(self, apply_nonlin=None, batch_dice=False, do_bg=True, smooth=1.):
+        """
+        """
+        super(SoftDiceLoss2, self).__init__()
+
+        self.do_bg = do_bg
+        self.batch_dice = batch_dice
+        self.apply_nonlin = apply_nonlin
+        self.smooth = smooth
+
+    def forward(self, x, y, loss_mask=None):
+        # Debugging
+        #print("X shape ", x.shape)
+        #print("Y shape ", y.shape)
+
+        shp_x = x.shape
+
+        if self.batch_dice:
+            axes = [0] + list(range(2, len(shp_x)))
+        else:
+            axes = list(range(2, len(shp_x)))
+
+        if self.apply_nonlin is not None:
+            x = self.apply_nonlin(x)
+
+        tp, fp, fn, _ = get_tp_fp_fn_tn4(x, y, axes, loss_mask, False)
+        dc = (2 * tp) / (2 * tp + fp + fn + 1e-8)
 
         if not self.do_bg:
             if self.batch_dice:
@@ -192,7 +403,9 @@ class SoftDiceLoss(nn.Module):
         dc = dc.mean()
 
         return -dc
+# [c, row, col]
 
+# [1, row, col]  -> [c, row, col]
 
 class MCCLoss(nn.Module):
     def __init__(self, apply_nonlin=None, batch_mcc=False, do_bg=True, smooth=0.0):

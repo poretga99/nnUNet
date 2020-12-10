@@ -34,6 +34,8 @@ from torch import nn
 from torch.cuda.amp import autocast
 from nnunet.training.learning_rate.poly_lr import poly_lr
 from batchgenerators.utilities.file_and_folder_operations import *
+from nnunet.utilities.nd_softmax import softmax_helper, sigmoid_helper
+from nnunet.utilities.tensor_utilities import sum_tensor
 
 
 class nnUNetTrainerV2(nnUNetTrainer):
@@ -158,12 +160,13 @@ class nnUNetTrainerV2(nnUNetTrainer):
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
         if torch.cuda.is_available():
             self.network.cuda()
-        self.network.inference_apply_nonlin = softmax_helper
+        #self.network.inference_apply_nonlin = softmax_helper
+        self.network.inference_apply_nonlin = sigmoid_helper
 
     def initialize_optimizer_and_scheduler(self):
         assert self.network is not None, "self.initialize_network must be called first"
         self.optimizer = torch.optim.SGD(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay,
-                                         momentum=0.99, nesterov=True)
+                                         momentum=0.95, nesterov=True)
         self.lr_scheduler = None
 
     def run_online_evaluation(self, output, target):
@@ -424,3 +427,62 @@ class nnUNetTrainerV2(nnUNetTrainer):
         ret = super().run_training()
         self.network.do_ds = ds
         return ret
+
+class nnUNetTrainerV2_own(nnUNetTrainerV2):
+    def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
+                 unpack_data=True, deterministic=True, fp16=False):
+        super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
+                         deterministic, fp16)
+        self.max_num_epochs = 1000
+        self.initial_lr = 1e-2
+        self.deep_supervision_scales = None
+        self.ds_loss_weights = None
+
+        self.pin_memory = True
+
+    def run_online_evaluation(self, output, target):
+        target = target[0]
+        output = output[0]
+        with torch.no_grad():
+            num_classes = output.shape[1]                       # batch classes rows cols   ->  classes [0, 1, 2, 10]    softmax->  [1/5, 2/5, 1/5, 10/13] argmax() -> 3
+            output_sigmoid = sigmoid_helper(output)             #                                                                  [1,  1,  1,  1]
+            output_seg = output_sigmoid#.argmax(1)
+            target = target[:, 0, :, :]  # ->batch x rows x cols
+            axes = tuple(range(1, len(target.shape)))
+            tp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
+            fp_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
+            fn_hard = torch.zeros((target.shape[0], num_classes - 1)).to(output_seg.device.index)
+            for c in range(1, num_classes):
+                tp_hard[:, c - 1] = sum_tensor((output_seg[:,c,:,:]>=0.5).float() * (target >= c).float(), axes=axes)
+                fp_hard[:, c - 1] = sum_tensor((output_seg[:,c,:,:]>=0.5).float() * (target < c).float(), axes=axes)
+                fn_hard[:, c - 1] = sum_tensor((output_seg[:,c,:,:]<0.5).float() * (target >= c).float(), axes=axes)
+
+            tp_hard = tp_hard.sum(0, keepdim=False).detach().cpu().numpy()
+            fp_hard = fp_hard.sum(0, keepdim=False).detach().cpu().numpy()
+            fn_hard = fn_hard.sum(0, keepdim=False).detach().cpu().numpy()
+
+            self.online_eval_foreground_dc.append(list((2 * tp_hard) / (2 * tp_hard + fp_hard + fn_hard + 1e-8)))
+            self.online_eval_tp.append(list(tp_hard))
+            self.online_eval_fp.append(list(fp_hard))
+            self.online_eval_fn.append(list(fn_hard))
+
+    def finish_online_evaluation(self):
+        self.online_eval_tp = np.sum(self.online_eval_tp, 0)
+        self.online_eval_fp = np.sum(self.online_eval_fp, 0)
+        self.online_eval_fn = np.mean(self.online_eval_fn, 0)
+        self.online_eval_foreground_dc = np.sum(self.online_eval_foreground_dc, 0)
+        print('global dice shape ', self.online_eval_foreground_dc.shape)
+        global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
+                                           zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
+                               if not np.isnan(i)]
+        self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
+        #self.all_val_eval_metrics.append(self.online_eval_foreground_dc)
+
+        self.print_to_log_file("Average global foreground Dice:", str(global_dc_per_class))
+        self.print_to_log_file("(interpret this as an estimate for the Dice of the different classes. This is not "
+                               "exact.)")
+
+        self.online_eval_foreground_dc = []
+        self.online_eval_tp = []
+        self.online_eval_fp = []
+        self.online_eval_fn = []

@@ -36,7 +36,7 @@ from nnunet.training.data_augmentation.default_data_augmentation import default_
 from nnunet.training.dataloading.dataset_loading import load_dataset, DataLoader3D, DataLoader2D, unpack_dataset
 from nnunet.training.loss_functions.dice_loss import DC_and_CE_loss
 from nnunet.training.network_training.network_trainer import NetworkTrainer
-from nnunet.utilities.nd_softmax import softmax_helper
+from nnunet.utilities.nd_softmax import softmax_helper, sigmoid_helper
 from nnunet.utilities.tensor_utilities import sum_tensor
 from torch import nn
 from torch.optim import lr_scheduler
@@ -260,6 +260,8 @@ class nnUNetTrainer(NetworkTrainer):
                                     net_nonlin, net_nonlin_kwargs, False, False, lambda x: x, InitWeights_He(1e-2),
                                     self.net_num_pool_op_kernel_sizes, self.net_conv_kernel_sizes, False, True, True)
         self.network.inference_apply_nonlin = softmax_helper
+        #print("\n\n\n SIGMOID")
+        #self.network.inference_apply_nonlin = sigmoid_helper
 
         if torch.cuda.is_available():
             self.network.cuda()
@@ -363,6 +365,7 @@ class nnUNetTrainer(NetworkTrainer):
         self.base_num_features = plans['base_num_features']
         self.num_input_channels = plans['num_modalities']
         self.num_classes = plans['num_classes'] + 1  # background is no longer in num_classes
+        print('Num classes ', self.num_classes)
         self.classes = plans['all_classes']
         self.use_mask_for_norm = plans['use_mask_for_norm']
         self.only_keep_largest_connected_component = plans['keep_only_largest_region']

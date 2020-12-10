@@ -201,6 +201,7 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
     print("starting prediction...")
     all_output_files = []
     for preprocessed in preprocessing:
+        print("HERE")
         output_filename, (d, dct) = preprocessed
         all_output_files.append(all_output_files)
         if isinstance(d, str):
@@ -217,6 +218,7 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
                                                                                     mixed_precision=mixed_precision)[1][None])
 
         softmax = np.vstack(softmax)
+        print("Softmax shape ", softmax.shape)
         softmax_mean = np.mean(softmax, 0)
 
         transpose_forward = trainer.plans.get('transpose_forward')

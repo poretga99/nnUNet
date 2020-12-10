@@ -711,7 +711,6 @@ class SegmentationNetwork(NeuralNetwork):
 
         # computing the class_probabilities by dividing the aggregated result with result_numsamples
         class_probabilities = aggregated_results / aggregated_nb_of_predictions
-
         if regions_class_order is None:
             predicted_segmentation = class_probabilities.argmax(0)
         else:
