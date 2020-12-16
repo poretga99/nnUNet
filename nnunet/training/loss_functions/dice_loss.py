@@ -219,6 +219,133 @@ def get_tp_fp_fn_tn4(net_output, gt, axes=None, mask=None, square=False):
 
     return tp, fp, fn, tn
 
+def get_tp_fp_fn_tn6(net_output, gt, axes=None, mask=None, square=False):
+    """
+    net_output must be (b, c, x, y(, z)))
+    gt must be a label map (shape (b, 1, x, y(, z)) OR shape (b, x, y(, z))) or one hot encoding (b, c, x, y(, z))
+    if mask is provided it must have shape (b, 1, x, y(, z)))
+    :param net_output:
+    :param gt:
+    :param axes: can be (, ) = no summation
+    :param mask: mask must be 1 for valid pixels and 0 for invalid pixels
+    :param square: if True then fp, tp and fn will be squared before summation
+    :return:
+    """
+    #if axes is None:
+    #    axes = tuple(range(2, len(net_output.size())))
+
+    shp_x = net_output.shape
+    shp_y = gt.shape
+    #print('Labels ', torch.unique(gt))
+    #p0, p1, p2, p3 = (gt==0).sum(), (gt>=1).sum(), (gt>=2).sum(), (gt>=3).sum()
+    #print('GT val ', p0, ' ', p1, ' ', p2, ' ', p3)
+    with torch.no_grad():
+        gt = gt.long()
+        y_onehot = torch.zeros(shp_x)
+        class_unique = torch.zeros(shp_x)
+        if net_output.device.type == "cuda":
+            y_onehot = y_onehot.cuda(net_output.device.index)
+            class_unique = class_unique.cuda(net_output.device.index)
+        for i in range(1, shp_x[1]):
+            y_onehot[:, i, :, :] = (gt >= i)[:, 0, :, :]
+        for i in range(1, shp_x[1]-1):
+            class_unique[:, i, :, :] = (gt == i)[:, 0, :, :]
+        #class_unique[:, 0, :, :] = (gt == 0)[:, 0, :, :]
+        #class_unique[:, -1, :, :] = (gt == (shp_x[1] - 1))[:, 0, :, :]
+        y_onehot[:, 0, :, :] = (gt == 0)[:, 0, :, :]
+    #p0, p1, p2, p3 = (y_onehot[:, 0, :, :]==1).sum(), (y_onehot[:, 1, :, :]==1).sum(), (y_onehot[:, 2, :, :]==1).sum(), (y_onehot[:, 3, :, :]==1).sum()
+    #print('OH ', p0, ' ', p1, ' ', p2, ' ', p3)
+    #print('Values ', p0, ' ', p1, ' ', p2, ' ', p3)
+    #print("net output shape ", net_output.shape)
+    #print("net output shape ", net_output.shape)
+    #print("y onehot ", y_onehot.shape)
+    #print('y onehot uniques ', torch.unique(y_onehot))
+    tp = (net_output * y_onehot) * (1 - class_unique) + (net_output * y_onehot)*class_unique*4
+    fp = net_output * (1 - y_onehot) * (1 - class_unique) + net_output * (1 - y_onehot) * class_unique*4
+    fn = (1 - net_output) * y_onehot * (1 - class_unique) + (1 - net_output) * y_onehot * class_unique*4
+    tn = (1 - net_output) * (1 - y_onehot) * (1 - class_unique) + (1 - net_output) * (1 - y_onehot) * (1 - class_unique) * class_unique*4
+
+    if len(axes) > 0:
+        tp = sum_tensor(tp, axes, keepdim=False)
+        fp = sum_tensor(fp, axes, keepdim=False)
+        fn = sum_tensor(fn, axes, keepdim=False)
+        tn = sum_tensor(tn, axes, keepdim=False)
+    #print("net_output dtype ", net_output.dtype)
+    #print("net_output max ", net_output.max())
+    #print("sum axes ", axes)
+    #print("tp shape", tp.shape)
+    #print("fp shape", fp.shape)
+    #print("tn shape", tn.shape)
+    #print("fn shape", fn.shape)
+
+    return tp, fp, fn, tn
+
+def get_tp_fp_fn_tn5(net_output, gt, axes=None, mask=None, square=False):
+    """
+    net_output must be (b, c, x, y(, z)))
+    gt must be a label map (shape (b, 1, x, y(, z)) OR shape (b, x, y(, z))) or one hot encoding (b, c, x, y(, z))
+    if mask is provided it must have shape (b, 1, x, y(, z)))
+    :param net_output:
+    :param gt:
+    :param axes: can be (, ) = no summation
+    :param mask: mask must be 1 for valid pixels and 0 for invalid pixels
+    :param square: if True then fp, tp and fn will be squared before summation
+    :return:
+    """
+    #if axes is None:
+    #    axes = tuple(range(2, len(net_output.size())))
+
+    shp_x = net_output.shape
+    shp_y = gt.shape
+    #print('Labels ', torch.unique(gt))
+    #p0, p1, p2, p3 = (gt==0).sum(), (gt>=1).sum(), (gt>=2).sum(), (gt>=3).sum()
+    #print('GT val ', p0, ' ', p1, ' ', p2, ' ', p3)
+    with torch.no_grad():
+        gt = gt.float()/(shp_x[1] - 1)
+        y_onehot = torch.zeros(shp_x[0], 9, shp_x[2], shp_x[3], dtype=torch.float32) # batch 9 rows cols
+        if net_output.device.type == "cuda":
+            y_onehot = y_onehot.cuda(net_output.device.index)
+        for i, th in enumerate([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]):
+            y_onehot[:, i, :, :] = (gt >= th)[:, 0, :, :]
+    #p0, p1, p2, p3 = (y_onehot[:, 0, :, :]==1).sum(), (y_onehot[:, 1, :, :]==1).sum(), (y_onehot[:, 2, :, :]==1).sum(), (y_onehot[:, 3, :, :]==1).sum()
+    #print('OH ', p0, ' ', p1, ' ', p2, ' ', p3)
+    #print('Values ', p0, ' ', p1, ' ', p2, ' ', p3)
+    #print("net output shape ", net_output.shape)
+    #print("net output shape ", net_output.shape)
+    #print("y onehot ", y_onehot.shape)
+    #print('y onehot uniques ', torch.unique(y_onehot))
+
+    # y_onehot =  batch 9 rows cols
+    # net out = batch class row col
+
+    out = torch.stack((net_output, net_output, net_output, net_output, net_output, net_output, net_output, net_output, net_output), dim=0).sum(dim=2)/net_output.shape[1]
+    out2 = torch.stack(
+        (net_output, net_output, net_output, net_output, net_output, net_output, net_output, net_output, net_output),
+        dim=0).sum(dim=2) / net_output.shape[1]
+    for i, th in enumerate([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]):
+        out2[i, :, :, :] = torch.threshold(torch.threshold(-out, -th, 1), th, 0)[i, :, :, :] #torch.where(net_output >= th, 1, 0).transpose(0, 1)
+    out3 = out2.transpose(0, 1)
+
+    tp = (out3 * y_onehot)
+    fp = (out3 * (1 - y_onehot))
+    fn = ((1 - out3) * y_onehot)
+    tn = ((1 - out3) * (1 - y_onehot))
+    axes = [1, 2, 3]
+    if len(axes) > 0:
+        tp = sum_tensor(tp, axes, keepdim=False)
+        fp = sum_tensor(fp, axes, keepdim=False)
+        fn = sum_tensor(fn, axes, keepdim=False)
+        tn = sum_tensor(tn, axes, keepdim=False)
+    #print("net_output dtype ", net_output.dtype)
+    #print("net_output max ", net_output.max())
+    #print("sum axes ", axes)
+    #print("tp shape", tp.shape)
+    #print("fp shape", fp.shape)
+    #print("tn shape", tn.shape)
+    #print("fn shape", fn.shape)
+
+    return tp/9.0, fp/9.0, fn/9.0, tn/9.0
+
 def get_tp_fp_fn_tn3(output, target, axes=None, mask=None, square=False):
     with torch.no_grad():
         num_classes = output.shape[1]
@@ -323,6 +450,9 @@ def get_tp_fp_fn_tn2(net_output, gt, axes=None, mask=None, square=False):
 
     return tp, fp, fn, tn
 
+def tversky_loss(tp, fp, fn, alpha, beta):
+    return tp / (tp + alpha*fp + beta*fn)
+
 class SoftDiceLoss(nn.Module):
     def __init__(self, apply_nonlin=None, batch_dice=False, do_bg=True, smooth=1.):
         """
@@ -347,23 +477,18 @@ class SoftDiceLoss(nn.Module):
         if self.apply_nonlin is not None:
             x = self.apply_nonlin(x)
 
-        # Debugging
-        #print("max x ", x.max())
-        #print("max y ", y.max())
         tp, fp, fn, _ = get_tp_fp_fn_tn(x, y, axes, loss_mask, False)
 
         nominator = 2 * tp + self.smooth
         denominator = 2 * tp + fp + fn + self.smooth
 
         dc = nominator / (denominator + 1e-8)
-        #print('Dice ', dc)
         if not self.do_bg:
             if self.batch_dice:
                 dc = dc[1:]
             else:
                 dc = dc[:, 1:]
         dc = dc.mean()
-        #print('Dice mean', dc)
         return -dc
 
 class SoftDiceLoss2(nn.Module):
@@ -394,6 +519,10 @@ class SoftDiceLoss2(nn.Module):
 
         tp, fp, fn, _ = get_tp_fp_fn_tn4(x, y, axes, loss_mask, False)
         dc = (2 * tp) / (2 * tp + fp + fn + 1e-8)
+        #dc = tversky_loss(tp, fp, fn, 0.2, 0.8)
+
+        #tp2, fp2, fn2, _ = get_tp_fp_fn_tn5(x, y, axes, loss_mask, False)
+        #dc2 = (2 * tp2) / (2 * tp2 + fp2 + fn2 + 1e-8)
 
         if not self.do_bg:
             if self.batch_dice:
@@ -401,6 +530,88 @@ class SoftDiceLoss2(nn.Module):
             else:
                 dc = dc[:, 1:]
         dc = dc.mean()
+        #dc2 = dc2.mean()
+
+        return -dc
+
+class SoftDiceLossWeighted(nn.Module):
+    def __init__(self, apply_nonlin=None, batch_dice=False, do_bg=True, smooth=1.):
+        """
+        """
+        super(SoftDiceLossWeighted, self).__init__()
+
+        self.do_bg = do_bg
+        self.batch_dice = batch_dice
+        self.apply_nonlin = apply_nonlin
+        self.smooth = smooth
+
+    def forward(self, x, y, loss_mask=None):
+        # Debugging
+        #print("X shape ", x.shape)
+        #print("Y shape ", y.shape)
+
+        shp_x = x.shape
+
+        if self.batch_dice:
+            axes = [0] + list(range(2, len(shp_x)))
+        else:
+            axes = list(range(2, len(shp_x)))
+
+        if self.apply_nonlin is not None:
+            x = self.apply_nonlin(x)
+
+        tp, fp, fn, _ = get_tp_fp_fn_tn6(x, y, axes, loss_mask, False)
+        dc = (2 * tp) / (2 * tp + fp + fn + 1e-8)
+        #dc = tversky_loss(tp, fp, fn, 0.2, 0.8)
+
+        #tp2, fp2, fn2, _ = get_tp_fp_fn_tn5(x, y, axes, loss_mask, False)
+        #dc2 = (2 * tp2) / (2 * tp2 + fp2 + fn2 + 1e-8)
+
+        if not self.do_bg:
+            if self.batch_dice:
+                dc = dc[1:]
+            else:
+                dc = dc[:, 1:]
+        dc = dc.mean()
+        #dc2 = dc2.mean()
+
+        return -dc
+
+class SoftDiceLoss3(nn.Module):
+    def __init__(self, apply_nonlin=None, batch_dice=False, do_bg=True, smooth=1.):
+        """
+        """
+        super(SoftDiceLoss3, self).__init__()
+
+        self.do_bg = do_bg
+        self.batch_dice = batch_dice
+        self.apply_nonlin = apply_nonlin
+        self.smooth = smooth
+
+    def forward(self, x, y, loss_mask=None):
+        # Debugging
+        #print("X shape ", x.shape)
+        #print("Y shape ", y.shape)
+
+        shp_x = x.shape
+
+        if self.batch_dice:
+            axes = [0] + list(range(2, len(shp_x)))
+        else:
+            axes = list(range(2, len(shp_x)))
+
+        if self.apply_nonlin is not None:
+            x = self.apply_nonlin(x)
+
+        tp, fp, fn, _ = get_tp_fp_fn_tn5(x, y, axes, loss_mask, False)
+        dc = (2 * tp) / (2 * tp + fp + fn + 1e-8)
+
+        #if not self.do_bg:
+        #    if self.batch_dice:
+        #        dc = dc[1:]
+        #    else:
+        #        dc = dc[:, 1:]
+        #dc = dc.mean()
 
         return -dc
 # [c, row, col]
