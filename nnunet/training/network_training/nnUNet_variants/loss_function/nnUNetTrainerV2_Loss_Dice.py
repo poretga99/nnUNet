@@ -34,7 +34,7 @@ class nnUNetTrainerV2_Loss_Dice_average(nnUNetTrainerV2):
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                          deterministic, fp16)
         self.loss = SoftDiceLoss(**{'apply_nonlin': softmax_helper, 'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False})
-        self.initial_lr = 1e-1
+        self.initial_lr = 1e-2
 
 
 class nnUNetTrainerV2_Loss_Dice_Soft(nnUNetTrainerV2_own):
@@ -43,7 +43,7 @@ class nnUNetTrainerV2_Loss_Dice_Soft(nnUNetTrainerV2_own):
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                          deterministic, fp16)
         self.loss = SoftDiceLoss2(**{'apply_nonlin': sigmoid_helper, 'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': True})
-        self.initial_lr = 1e-1
+        self.initial_lr = 1e-2
         #self.network.inference_apply_nonlin = sigmoid_helper
 
 class nnUNetTrainerV2_Loss_Dice_Soft2(nnUNetTrainerV2_own):
@@ -52,7 +52,7 @@ class nnUNetTrainerV2_Loss_Dice_Soft2(nnUNetTrainerV2_own):
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                          deterministic, fp16)
         self.loss = SoftDiceLossWeighted(**{'apply_nonlin': sigmoid_helper, 'batch_dice': self.batch_dice, 'smooth': 1e-5, 'do_bg': False})
-        self.initial_lr = 1e-3
+        self.initial_lr = 1e-2
 
 class nnUNetTrainerV2_Loss_DicewithBG(nnUNetTrainerV2):
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
